@@ -1,0 +1,49 @@
+{
+  "name": "@quillmark/mcp-rewrite",
+  "version": "0.0.1",
+  "description": "Quillmark MCP package",
+  "main": "./dist/index.js",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "tsc --noEmit",
+    "preversion": "npm test",
+    "postversion": "git push --follow-tags",
+    "release:patch": "npm version patch",
+    "release:minor": "npm version minor",
+    "release:major": "npm version major"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nibsbin/quillmark-mcp-rewrite.git"
+  },
+  "keywords": [
+    "quillmark",
+    "mcp"
+  ],
+  "author": "Quillmark",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/nibsbin/quillmark-mcp-rewrite/issues"
+  },
+  "homepage": "https://github.com/nibsbin/quillmark-mcp-rewrite#readme",
+  "devDependencies": {
+    "@types/node": "^25.3.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  },
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ]
+}
