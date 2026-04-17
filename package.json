@@ -1,6 +1,6 @@
 {
   "name": "@quillmark/mcp",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Quillmark MCP package",
   "main": "./dist/index.js",
   "publishConfig": {
