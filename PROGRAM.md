@@ -1,4 +1,4 @@
-# @quillmark/mcp — Implementation Handover
+# @quillmark/mcp — Design Doc
 
 The Quillmark MCP integration library. Owns the parse → resolve → validate → MCP-envelope pipeline. Stops at delivery — the consumer decides whether bytes are rendered now and persisted, deferred to a web app, or anything else. Engine and quiver bootstrap stay with the consumer; the ecosystem APIs (`new Quillmark()`, `Quiver.fromDir`) are already terse and we don't wrap them.
 
@@ -27,7 +27,8 @@ The library doesn't distinguish between them.
 
 - Node.js ≥ 24, ESM, top-level `await`.
 - TypeScript source compiled via `tsc`. `package.json` `prepare` script builds on install (so `npm link` against a fresh checkout works without manual build).
-- Runtime deps (bundled): `@quillmark/wasm`, `@quillmark/quiver`, `@toon-format/toon`. Anyone reaching for `@quillmark/mcp` wanted Quillmark.
+- Runtime deps (bundled): `@quillmark/wasm` (≥0.69.0, for typed `QuillMetadata`/`Form` and `parse::missing_quill_field`), `@quillmark/quiver` (≥0.5.1, for the `/node` subpath), `@toon-format/toon`. Anyone reaching for `@quillmark/mcp` wanted Quillmark.
+- **Node.js WASM warning.** wasm ≥0.69.0 dropped the `node-esm` build target; the bundler entry now serves Node.js via the experimental WASM ESM proposal (Node ≥24, `--experimental-wasm-modules`). This emits one `ExperimentalWarning` to stderr per process start. It does not affect stdio JSON-RPC framing (stdout is untouched) but will appear in stdio server logs.
 - Peer deps: `@modelcontextprotocol/sdk`, `zod`. Consumer supplies them; the library uses their copies (no cross-realm `instanceof` issues).
 
 ## Invariants
@@ -43,6 +44,10 @@ These and *Non-goals* are firm. Module layout, internal helper names, and exact 
 - **Stay off stdout.** Internal logging goes to stderr (stdout is reserved for stdio JSON-RPC framing — a single stray byte disconnects the client).
 - **Tool exceptions become tool results.** Inside `registerQuillmarkTools`'s callbacks, every throw is caught and converted to an `{ isError: true }` envelope. The SDK's transport-level error path is never reached for tool failures.
 - **Tool registration is one shot.** Calling `registerQuillmarkTools` twice on the same `McpServer` lets the SDK's duplicate-name error fire; we don't add a layer.
+- **Doc is not mutated between `form()` and deliver.** `quill.form(doc)` is a snapshot (per wasm contract); the library never edits `doc` after validation, so the form snapshot is current at delivery time. Deliverers may mutate `doc` for their own purposes, but that is post-validation.
+- **wasm types are trusted, not runtime-validated.** `quill.metadata: QuillMetadata` and `quill.form(doc): Form` are structurally typed in wasm ≥0.69.0; the library does not add a second layer of runtime schema validation. A quill that produces unexpected shapes at runtime throws — that indicates a malformed quill, not a user input failure.
+- **Render closure shape is `(opts?) => Artifact[]`.** `RenderResult.warnings` is captured by the closure and folded into the success envelope. `RenderResult.outputFormat` is recoverable from `artifacts[0].format`; `RenderResult.renderTimeMs` is observability and intentionally not exposed.
+- **Trust the wasm parser for missing-QUILL detection.** `Document.fromMarkdown` (wasm ≥0.69.0) emits a `parse::missing_quill_field` diagnostic and throws when `QUILL:` is absent. The library does not add a defensive post-parse `quillRef` empty-string check.
 
 ## Public API
 
@@ -56,8 +61,9 @@ import {
   registerQuillmarkTools,
   type Deliverer,
   type DeliveryResult,
-  type QuillMetadata,
-  // wasm types re-exported for the deliverer signature:
+  // wasm types re-exported so consumers don't need a direct @quillmark/wasm dep:
+  type QuillMetadata,    // re-exported from wasm ≥0.69.0; no local mirror
+  type QuillSchema,      // typeof metadata.schema — useful for typed schema introspection
   type Document,
   type Artifact,
   type RenderOptions,
@@ -72,7 +78,7 @@ Canonical five-line bootstrap. The library imports nothing into this flow — th
 
 ```ts
 import { Quillmark, init } from '@quillmark/wasm';
-import { Quiver } from '@quillmark/quiver';
+import { Quiver } from '@quillmark/quiver/node';     // see "Quiver entry split" below
 import { registerQuillmarkTools, type Deliverer } from '@quillmark/mcp';
 
 init();                                              // optional panic-hook setup
@@ -87,16 +93,18 @@ registerQuillmarkTools(mcpServer, { quiver, engine, deliver });
 
 `init()` is idempotent panic-hook setup; calling it more than once is harmless. `quiver.warm()` is engine-independent and prefetches every quill tree so first-request latency stays low.
 
-### `listQuills(quiver, engine): Promise<Array<{ name: string; description: string }>>`
+**Quiver entry split.** `@quillmark/quiver` ships two entries: the main entry exposes only the browser-safe `Quiver.fromBuilt(url)`; the `/node` subpath additionally installs `Quiver.fromDir`, `Quiver.fromPackage`, and `Quiver.build`. Node consumers import from `@quillmark/quiver/node`. The library itself never imports `Quiver` (it only consumes the instance the consumer hands in), so this is purely a consumer-side concern documented here so the bootstrap doesn't drift.
 
-Iterates `quiver.quillNames()`, resolves each via `quiver.getQuill(name, { engine })` to access metadata, returns `name` + `description`. Per-quill metadata failures isolated (logged to stderr, skipped). Returns `[]` for empty/unreadable catalogs.
+### `listQuills(quiver, engine): Promise<{ quills: Array<{ name: string; description: string }> }>`
+
+Iterates `quiver.quillNames()`, resolves each via `quiver.getQuill(name, { engine })` to access metadata, returns `{ quills: [...] }` with one entry per quill. Per-quill metadata failures isolated (logged to stderr, skipped). Returns `{ quills: [] }` for empty/unreadable catalogs. The wrapping object exists so every primitive's return shape is a JSON object (POJO), letting the MCP callback unconditionally set `structuredContent: result` without an array guard.
 
 ### `getSpecs(quiver, engine, ref): Promise<{ schema: string; instructions: string }>`
 
 Resolves `ref` (`name`, `name@x`, `name@x.y`, `name@x.y.z`) via `quiver.getQuill(ref, { engine })`. Returns:
 
 - `schema`: TOON-encoded `quill.metadata.schema` (uses `@toon-format/toon`).
-- `instructions`: `quill.metadata.instructions ?? ''`.
+- `instructions`: `quill.metadata.instructions` narrowed and stringified — `instructions` is not a well-known key on `QuillMetadata` (it falls through to `[key: string]: unknown`), so the implementation narrows: `typeof metadata.instructions === 'string' ? metadata.instructions : ''`.
 
 Throws on missing/invalid `ref` or resolution failure (the MCP-layer wrapper converts the throw into an `isError: true` envelope).
 
@@ -123,31 +131,22 @@ type Deliverer = (input: {
 
 type DeliveryResult =
   | { status: 'success'; warnings?: Diagnostic[]; [key: string]: unknown }
-  | { status: 'error'; errors: Array<{ message: string; path?: string; severity?: string }> };
+  | { status: 'error'; errors: ErrorEntry[] };
+
+interface ErrorEntry {
+  message: string;
+  path?: string;       // schema-violation field path (form() origin)
+  severity?: string;   // "error" | "warning" — promoted only for fatal entries
+}
 ```
+
+`ErrorEntry` is a library-curated shape, not the upstream wasm `Diagnostic`. The library normalizes parse exceptions, `QuiverError`s, and fatal `form()` diagnostics into this single shape so deliverers and MCP clients see one error contract. `Diagnostic` is re-exported because it appears on the *success* envelope's `warnings` field (parse-time + render-time warnings), not because it shapes errors.
 
 Deliverer throws propagate from `createDocument`. The MCP-layer try/catch in `registerQuillmarkTools` is the only safety net, and only on the MCP path.
 
-#### Eager-render deliverer (turnkey-style)
+#### Use cases the contract serves
 
-```ts
-const deliver: Deliverer = async ({ doc, render }) => {
-  const [artifact] = render({ format: 'pdf' });
-  const path = join(outDir, `${randomUUID()}.pdf`);
-  await fs.writeFile(path, artifact.bytes);
-  return { status: 'success', url: `${baseUrl}/${basename(path)}` };
-};
-```
-
-#### Deferred web-app deliverer
-
-```ts
-const deliver: Deliverer = async ({ doc, canonicalRef }) => {
-  const id = randomUUID();
-  await db.put(id, { content: doc.toMarkdown(), quillRef: canonicalRef });
-  return { status: 'success', url: `https://app.example.com/docs/${id}` };
-};
-```
+Two canonical patterns motivate the input shape; neither lives in this library. **Eager render** (turnkey's case) calls `render(...)` to materialize artifacts immediately and persists bytes — needs `doc` + `render`. **Deferred persistence** (web-app case) skips `render` entirely, stores `doc.toMarkdown()` plus `canonicalRef`, and lets a downstream UI render on demand — this is why `canonicalRef` and `metadata` are on the input rather than tucked behind `render`. Reference implementations live in `quillmark-mcp-turnkey` and consumer code, not here.
 
 ### `registerQuillmarkTools(mcpServer, { quiver, engine, deliver }): void`
 
@@ -171,7 +170,7 @@ async (args) => {
     const result = await primitive(...);
     return {
       content: [{ type: 'text', text: JSON.stringify(result) }],
-      structuredContent: isPojo(result) ? result : undefined,
+      structuredContent: result,
       isError: shouldFlagAsError(result),
     };
   } catch (err) {
@@ -183,7 +182,7 @@ async (args) => {
 };
 ```
 
-- `isPojo`: only plain object literals (`Object.getPrototypeOf(v) === Object.prototype`) get `structuredContent`. Arrays, Maps, class instances, primitives, and `null` set it to `undefined`.
+- Every primitive returns a POJO by contract (`{ quills: [...] }`, `{ schema, instructions }`, `DeliveryResult`), so `structuredContent` takes `result` unconditionally — no runtime POJO check needed.
 - `getErrorMessage`: `err?.message ?? String(err)`. Internal helper, not exported.
 - `shouldFlagAsError`: `false` for `list_quills` / `get_specs`; `result.status === 'error'` for `create_document`.
 
@@ -191,25 +190,15 @@ Tool descriptions and parameter docs are baked into each registration call. The 
 
 ## QuillMetadata shape
 
-The library defines its own `QuillMetadata` because `@quillmark/wasm` types `metadata` as `any`. Mirror the documented shape:
+As of wasm ≥0.69.0, `QuillMetadata` and its sub-types are exported directly from `@quillmark/wasm` — the library carries no local mirror. The library re-exports `QuillMetadata` and `QuillSchema` for consumer use.
 
-```ts
-interface QuillMetadata {
-  schema: {
-    name: string;
-    main: { fields: Record<string, unknown>; description?: string };
-    card_types?: Record<string, { fields: Record<string, unknown> }>;
-    example?: string;
-  };
-  backend: string;
-  version: string;
-  author?: string;
-  description: string;          // quill-level
-  supportedFormats: string[];   // lowercase
-  instructions?: string;        // pulled from quill: section
-  [key: string]: unknown;
-}
-```
+Notable shape details implementers should know:
+
+- `author: string` — required (not optional).
+- `supportedFormats: OutputFormat[]` — typed to the `OutputFormat` union, not `string[]`.
+- `instructions` — **not** a well-known key; falls through to `[key: string]: unknown`. Access via index and narrow at the call site.
+- `schema: QuillSchema` — fully typed with `QuillCardSchema` / `QuillFieldSchema` / `QuillFieldUi` / `QuillCardUi` sub-interfaces. Field `type` is a discriminated string union (`"string" | "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "markdown"`).
+- `Form`, `FormCard`, `FormFieldValue`, `FormFieldSource` — also typed in wasm ≥0.69.0; used internally by `diagnostics.ts` for the `quill.form(doc)` result. Not re-exported (internal pipeline detail).
 
 ## Non-goals
 
@@ -251,10 +240,9 @@ Sketch — consolidate or split as natural.
       createDocument.ts             # parse → resolve → validate → deliver
     registerQuillmarkTools.ts       # SDK registerTool calls + envelope wrapping
     internal/
-      pojo.ts                       # isPojo predicate
       errorMessage.ts               # getErrorMessage extractor
       diagnostics.ts                # fatal-vs-warning classification for form() output
-      types.ts                      # public types (Deliverer, DeliveryResult, QuillMetadata)
+      types.ts                      # public types (Deliverer, DeliveryResult); QuillMetadata/QuillSchema re-exported from wasm
   test/
     listQuills.test.ts
     getSpecs.test.ts
@@ -268,7 +256,7 @@ Sketch — consolidate or split as natural.
 
 Vitest. Coverage targets:
 
-- **`listQuills`**: fixture quiver with two quills → both returned. Quill with broken metadata → skipped, others returned, stderr noted.
+- **`listQuills`**: fixture quiver with two quills → `{ quills: [...] }` with both entries. Quill with broken metadata → skipped, others returned, stderr noted. Empty quiver → `{ quills: [] }`.
 
 - **`getSpecs`**: valid ref → schema/instructions; selector ref (`name`, `name@x`) → resolves to highest match; missing ref → throws.
 
@@ -276,35 +264,10 @@ Vitest. Coverage targets:
 
 - **`registerQuillmarkTools`**: integration test using the SDK's in-memory transport pair. Invoke each tool through JSON-RPC; assert envelope:
   - `content[0].text` is the JSON-stringified primitive result.
-  - `structuredContent` matches the result for POJOs, omitted otherwise.
+  - `structuredContent` equals the primitive's return value (always a POJO by contract).
   - `isError: true` for: thrown primitive errors (all three tools), `create_document` returning `{ status: 'error' }`. `false` otherwise.
 
 No tests for stdio or HTTP transports — the library doesn't own them.
-
-## Versioning
-
-Semver. `0.x` is pre-release; breaking changes land in `0.minor` bumps. After `1.0`, tracks the MCP SDK's major version: SDK major bump ⇒ `@quillmark/mcp` major bump.
-
-## Migration from current code
-
-The existing `src/` in `quillmark-mcp-turnkey` mixes library and turnkey concerns. Suggested split:
-
-| Current location                            | New home                                                                  |
-|---------------------------------------------|---------------------------------------------------------------------------|
-| `src/primitives/listQuills.js`              | `@quillmark/mcp/src/primitives/listQuills.ts`                              |
-| `src/primitives/getSpecs.js`                | `@quillmark/mcp/src/primitives/getSpecs.ts`                                |
-| `src/primitives/createDocument.js`          | `@quillmark/mcp/src/primitives/createDocument.ts` (extended with `quill.form` validation step) |
-| `src/mcp/createDefaultMCP.js` engine + quiver bootstrap | Stays in `quillmark-mcp-turnkey` (consumer-side setup; library does not own it) |
-| `src/mcp/QuillmarkMCP.js` (tool wiring)     | `@quillmark/mcp/src/registerQuillmarkTools.ts`                             |
-| `src/mcp/McpSdkServerAdapter.js`            | Delete; collapse SDK calls into the registration helper                    |
-| `src/mcp/createDefaultMCP.js` (the rest)    | Replace with inline turnkey wiring: `init()`, `new Quillmark()`, `Quiver.fromDir`, `quiver.warm()`, then `registerQuillmarkTools` |
-| `src/strategies/RenderAndHostStrategy.js`   | `quillmark-mcp-turnkey/src/deliverer.{ts,js}` (rewritten against the new `Deliverer` signature: `(input) => Promise<DeliveryResult>`) |
-| `src/strategies/DeliveryStrategy.js`        | Delete; type lives in `@quillmark/mcp`                                     |
-| `src/mcp/httpServer.js`                     | `quillmark-mcp-turnkey` (already turnkey-flavored)                         |
-| `src/bin.js`                                | `quillmark-mcp-turnkey` (CLI)                                              |
-| `src/errors.js`, `src/logger.js`            | Inline what survives in `internal/`; delete the rest                       |
-
-After the split, `quillmark-mcp-turnkey` depends on `@quillmark/mcp` and contributes its own deliverer (filesystem + `baseUrl` URL shape), HTTP middleware, CLI, Docker artifacts, and any remaining deployment knobs.
 
 ## Acceptance
 
@@ -312,5 +275,4 @@ The library is done when:
 
 1. Four runtime exports + the documented type exports compile and resolve from a fresh `npm install`.
 2. The vitest suite passes against a fixture quiver covering: success path, parse error, resolve error, schema violation, deliverer throw, deferred deliverer (no render call), eager deliverer with captured warnings.
-3. `quillmark-mcp-turnkey` migrates to depend on `@quillmark/mcp` and its existing integration tests pass — proving the API covers stdio + HTTP consumer paths without the library owning either transport.
-4. No exported symbol matches a *Non-goal* above.
+3. No exported symbol matches a *Non-goal* above.
