@@ -28,7 +28,7 @@ The library doesn't distinguish between them.
 - Node.js ≥ 24, ESM, top-level `await`.
 - TypeScript source compiled via `tsc`. `package.json` `prepare` script builds on install (so `npm link` against a fresh checkout works without manual build).
 - Runtime deps (bundled): `@quillmark/wasm` (≥0.69.0, for typed `QuillMetadata`/`Form` and `parse::missing_quill_field`), `@quillmark/quiver` (≥0.5.1, for the `/node` subpath), `@toon-format/toon`. Anyone reaching for `@quillmark/mcp` wanted Quillmark.
-- **Node.js WASM warning.** wasm ≥0.69.0 dropped the `node-esm` build target; the bundler entry now serves Node.js via the experimental WASM ESM proposal (Node ≥24, `--experimental-wasm-modules`). This emits one `ExperimentalWarning` to stderr per process start. It does not affect stdio JSON-RPC framing (stdout is untouched) but will appear in stdio server logs.
+- **Node.js WASM warning.** wasm ≥0.69.0 dropped the `node-esm` build target; the bundler entry now serves Node.js via the experimental WASM ESM proposal. Node 24 handles the static `.wasm` import automatically and emits one `ExperimentalWarning` to stderr per process start — no CLI flag required. Does not affect stdio JSON-RPC framing (stdout is untouched) but will appear in stdio server logs.
 - Peer deps: `@modelcontextprotocol/sdk`, `zod`. Consumer supplies them; the library uses their copies (no cross-realm `instanceof` issues).
 
 ## Invariants
@@ -188,17 +188,6 @@ async (args) => {
 
 Tool descriptions and parameter docs are baked into each registration call. The library owns tool-level guidance ("how to use the tool"); per-quill authoring guidance lives in `quill.metadata` and surfaces through `get_specs`.
 
-## QuillMetadata shape
-
-As of wasm ≥0.69.0, `QuillMetadata` and its sub-types are exported directly from `@quillmark/wasm` — the library carries no local mirror. The library re-exports `QuillMetadata` and `QuillSchema` for consumer use.
-
-Notable shape details implementers should know:
-
-- `author: string` — required (not optional).
-- `supportedFormats: OutputFormat[]` — typed to the `OutputFormat` union, not `string[]`.
-- `instructions` — **not** a well-known key; falls through to `[key: string]: unknown`. Access via index and narrow at the call site.
-- `schema: QuillSchema` — fully typed with `QuillCardSchema` / `QuillFieldSchema` / `QuillFieldUi` / `QuillCardUi` sub-interfaces. Field `type` is a discriminated string union (`"string" | "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "markdown"`).
-- `Form`, `FormCard`, `FormFieldValue`, `FormFieldSource` — also typed in wasm ≥0.69.0; used internally by `diagnostics.ts` for the `quill.form(doc)` result. Not re-exported (internal pipeline detail).
 
 ## Non-goals
 
