@@ -1,6 +1,6 @@
 {
   "name": "@quillmark/mcp",
-  "version": "0.0.5",
+  "version": "0.1.0",
   "description": "MCP integration library for Quillmark — parse → resolve → validate → MCP-envelope pipeline.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
