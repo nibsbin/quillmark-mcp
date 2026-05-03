@@ -1,0 +1,55 @@
+{
+  "name": "@quillmark/mcp",
+  "version": "0.1.0",
+  "description": "Flat, TypeScript-first toolkit for building MCP servers in Node.js.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "lint": "tsc --noEmit",
+    "preversion": "npm test",
+    "postversion": "git push --follow-tags",
+    "release:patch": "npm version patch",
+    "release:minor": "npm version minor",
+    "release:major": "npm version major"
+  },
+  "keywords": [
+    "quillmark",
+    "mcp",
+    "modelcontextprotocol"
+  ],
+  "author": "Quillmark",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nibsbin/quillmark-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nibsbin/quillmark-mcp/issues"
+  },
+  "homepage": "https://github.com/nibsbin/quillmark-mcp#readme",
+  "peerDependencies": {},
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^25.3.3",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
