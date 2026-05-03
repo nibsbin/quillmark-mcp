@@ -99,14 +99,13 @@ registerQuillmarkTools(mcpServer, { quiver, engine, deliver });
 
 Iterates `quiver.quillNames()`, resolves each via `quiver.getQuill(name, { engine })` to access metadata, returns `{ quills: [...] }` with one entry per quill. Per-quill metadata failures isolated (logged to stderr, skipped). Returns `{ quills: [] }` for empty/unreadable catalogs. The wrapping object exists so every primitive's return shape is a JSON object (POJO), letting the MCP callback unconditionally set `structuredContent: result` without an array guard.
 
-### `getSpecs(quiver, engine, ref): Promise<{ schema: string; instructions: string }>`
+### `getSpecs(quiver, engine, ref): Promise<{ schema: string }>`
 
 Resolves `ref` (`name`, `name@x`, `name@x.y`, `name@x.y.z`) via `quiver.getQuill(ref, { engine })`. Returns:
 
-- `schema`: TOON-encoded `quill.metadata.schema` (uses `@toon-format/toon`).
-- `instructions`: `quill.metadata.instructions` narrowed and stringified — `instructions` is not a well-known key on `QuillMetadata` (it falls through to `[key: string]: unknown`), so the implementation narrows: `typeof metadata.instructions === 'string' ? metadata.instructions : ''`.
+- `schema`: TOON-encoded `quill.metadata.schema` (uses `@toon-format/toon`). When the quill declares `example_file:` in `Quill.yaml`, the resulting `schema.example` field carries the example document and is included in the encoded output.
 
-Throws on missing/invalid `ref` or resolution failure (the MCP-layer wrapper converts the throw into an `isError: true` envelope).
+Throws on empty `ref` or resolution failure (the MCP-layer wrapper converts the throw into an `isError: true` envelope).
 
 ### `createDocument(quiver, engine, deliver, content): Promise<DeliveryResult>`
 
@@ -182,7 +181,7 @@ async (args) => {
 };
 ```
 
-- Every primitive returns a POJO by contract (`{ quills: [...] }`, `{ schema, instructions }`, `DeliveryResult`), so `structuredContent` takes `result` unconditionally — no runtime POJO check needed.
+- Every primitive returns a POJO by contract (`{ quills: [...] }`, `{ schema }`, `DeliveryResult`), so `structuredContent` takes `result` unconditionally — no runtime POJO check needed.
 - `getErrorMessage`: `err?.message ?? String(err)`. Internal helper, not exported.
 - `shouldFlagAsError`: `false` for `list_quills` / `get_specs`; `result.status === 'error'` for `create_document`.
 
@@ -247,7 +246,7 @@ Vitest. Coverage targets:
 
 - **`listQuills`**: fixture quiver with two quills → `{ quills: [...] }` with both entries. Quill with broken metadata → skipped, others returned, stderr noted. Empty quiver → `{ quills: [] }`.
 
-- **`getSpecs`**: valid ref → schema/instructions; selector ref (`name`, `name@x`) → resolves to highest match; missing ref → throws.
+- **`getSpecs`**: valid ref → TOON-encoded schema string; selector ref (`name`, `name@x`) → resolves to highest match; missing/empty ref → throws.
 
 - **`createDocument`**: malformed frontmatter → error result; unknown quill → error result; schema violation (missing required field) → error result with diagnostic; valid content + eager deliverer → deliverer's result with render warnings folded into `warnings`; valid content + deferred deliverer (no render call) → deliverer's result, no warnings; deliverer throws → propagates from `createDocument`.
 
