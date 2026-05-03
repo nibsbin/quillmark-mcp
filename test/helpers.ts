@@ -21,7 +21,7 @@ export interface FakeQuillOptions {
   name: string;
   version?: string;
   description?: string;
-  instructions?: string;
+  example?: string;
   diagnostics?: Diagnostic[];
   metadataThrows?: boolean;
   artifacts?: Artifact[];
@@ -33,6 +33,7 @@ export function fakeQuill(opts: FakeQuillOptions): Quill {
   const schema: QuillSchema = {
     name: opts.name,
     main: { fields: {}, title: opts.name },
+    example: opts.example,
   };
   const baseMetadata: QuillMetadata = {
     schema,
@@ -41,7 +42,6 @@ export function fakeQuill(opts: FakeQuillOptions): Quill {
     author: "test",
     description: opts.description ?? "",
     supportedFormats: ["txt"],
-    instructions: opts.instructions,
   };
 
   const form: Form = {

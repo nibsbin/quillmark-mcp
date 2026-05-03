@@ -6,15 +6,13 @@ export async function getSpecs(
   quiver: Quiver,
   engine: Quillmark,
   ref: string,
-): Promise<{ schema: string; example: string }> {
-  if (typeof ref !== "string" || ref.trim() === "") {
+): Promise<{ schema: string }> {
+  if (ref.trim() === "") {
     throw new Error("Quill format reference must be a non-empty string.");
   }
 
   const quill = (await quiver.getQuill(ref, { engine: engine as never })) as Quill;
-  const metadata = quill.metadata;
-  const schema = encode(metadata.schema);
-  const example = metadata.schema.example ?? "";
+  const schema = encode(quill.metadata.schema);
 
-  return { schema, example };
+  return { schema };
 }

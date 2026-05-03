@@ -1,5 +1,5 @@
 import type { Quiver } from "@quillmark/quiver/node";
-import type { Quillmark } from "@quillmark/wasm";
+import type { Quill, Quillmark } from "@quillmark/wasm";
 import { getErrorMessage } from "../internal/errorMessage.js";
 
 export interface QuillSummary {
@@ -24,16 +24,8 @@ export async function listQuills(
   const quills = await Promise.all(
     names.map(async (name): Promise<QuillSummary | null> => {
       try {
-        const quill = await quiver.getQuill(name, { engine: engine as never });
-        const metadata = (quill as { metadata?: unknown }).metadata;
-        const description =
-          metadata &&
-          typeof metadata === "object" &&
-          "description" in metadata &&
-          typeof (metadata as { description: unknown }).description === "string"
-            ? ((metadata as { description: string }).description)
-            : "";
-        return { name, description };
+        const quill = (await quiver.getQuill(name, { engine: engine as never })) as Quill;
+        return { name, description: quill.metadata.description };
       } catch (err) {
         process.stderr.write(
           `[@quillmark/mcp] listQuills: skipping "${name}": ${getErrorMessage(err)}\n`,

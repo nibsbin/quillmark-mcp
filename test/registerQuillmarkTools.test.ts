@@ -44,16 +44,15 @@ describe("registerQuillmarkTools", () => {
     }
   });
 
-  it("get_specs returns schema + instructions", async () => {
+  it("get_specs returns schema", async () => {
     const { client, close } = await setup();
     try {
       const res = (await client.callTool({
         name: "get_specs",
         arguments: { ref: "memo@1.0.0" },
-      })) as { structuredContent?: { schema?: unknown; instructions?: unknown }; isError?: boolean };
+      })) as { structuredContent?: { schema?: unknown }; isError?: boolean };
       expect(res.isError).toBeFalsy();
       expect(typeof res.structuredContent?.schema).toBe("string");
-      expect(typeof res.structuredContent?.instructions).toBe("string");
     } finally {
       await close();
     }
