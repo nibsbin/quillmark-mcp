@@ -11,7 +11,7 @@ import type { Deliverer } from "./internal/types.js";
 const LIST_QUILLS_DESCRIPTION =
   "List available Quill formats with names and descriptions. A Quill format is a schematized document template for Quillmark. Call this when you need to discover which format to use. Returns { quills: [{ name, description }] }.";
 const GET_SPECS_DESCRIPTION =
-  "Get the schema and authoring instructions for a specific Quill format. Returns { schema, instructions } where schema is TOON-encoded (token-efficient for LLM consumption). Use the schema to structure content and follow the instructions for authoring guidance.";
+  "Get the schema and example for a specific Quill format. Returns { schema, example } where schema is TOON-encoded (token-efficient for LLM consumption) and example is a fully-authored reference document.";
 const CREATE_DOCUMENT_DESCRIPTION =
   "Create a document from Quillmark content. Input must be a string containing YAML frontmatter with a QUILL: field (selecting the Quill format) and a markdown body. On schema violation or parse failure, returns { status: 'error', errors: [...] } — fix and retry.";
 
