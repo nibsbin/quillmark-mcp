@@ -1,7 +1,7 @@
 {
   "name": "@quillmark/mcp",
   "version": "0.1.0",
-  "description": "Flat, TypeScript-first toolkit for building MCP servers in Node.js.",
+  "description": "MCP integration library for Quillmark — parse → resolve → validate → MCP-envelope pipeline.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -22,6 +22,7 @@
   },
   "scripts": {
     "build": "tsc",
+    "prepare": "tsc",
     "test": "vitest run",
     "lint": "tsc --noEmit",
     "preversion": "npm test",
@@ -45,11 +46,20 @@
     "url": "https://github.com/nibsbin/quillmark-mcp/issues"
   },
   "homepage": "https://github.com/nibsbin/quillmark-mcp#readme",
-  "peerDependencies": {},
-  "dependencies": {},
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": ">=1.20.0",
+    "zod": "^3.25 || ^4.0"
+  },
+  "dependencies": {
+    "@quillmark/quiver": ">=0.5.1",
+    "@quillmark/wasm": ">=0.69.0",
+    "@toon-format/toon": ">=2.0.0"
+  },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^25.3.3",
     "typescript": "^5.9.3",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "zod": "^3.25.0"
   }
 }
